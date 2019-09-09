@@ -22,6 +22,7 @@ android {
 }
 
 dependencies {
+  implementation "androidx.viewpager2:viewpager2:1.0.0-beta04"
   implementation "androidx.viewpager:viewpager:${ANDROIDX_BASE_VERSION}"
   implementation "androidx.fragment:fragment:${ANDROIDX_BASE_VERSION}"
 }

@@ -33,8 +33,10 @@ import android.widget.LinearLayout;
 import android.widget.TextView;
 
 import androidx.core.view.ViewCompat;
+import androidx.recyclerview.widget.RecyclerView;
 import androidx.viewpager.widget.PagerAdapter;
 import androidx.viewpager.widget.ViewPager;
+import androidx.viewpager2.widget.ViewPager2;
 
 /**
  * To be used with ViewPager to provide a tab indicator component which give constant feedback as
@@ -80,7 +82,10 @@ public class SmartTabLayout extends HorizontalScrollView {
   private int tabViewTextHorizontalPadding;
   private int tabViewTextMinWidth;
   private ViewPager viewPager;
+  private ViewPager2 vpV2;
   private ViewPager.OnPageChangeListener viewPagerPageChangeListener;
+  private ViewPager2.OnPageChangeCallback vpV2PageChangeCallback;
+  private TabNameGenerator vpV2NameGenerator = null;
   private OnScrollChangeListener onScrollChangeListener;
   private TabProvider tabProvider;
   private InternalTabClickListener internalTabClickListener;
@@ -199,8 +204,12 @@ public class SmartTabLayout extends HorizontalScrollView {
   protected void onLayout(boolean changed, int l, int t, int r, int b) {
     super.onLayout(changed, l, t, r, b);
     // Ensure first scroll
-    if (changed && viewPager != null) {
-      scrollToTab(viewPager.getCurrentItem(), 0);
+    if (changed) {
+      if (viewPager != null) {
+        scrollToTab(viewPager.getCurrentItem(), 0);
+      } else if (vpV2 != null) {
+        scrollToTab(vpV2.getCurrentItem(), 0);
+      }
     }
   }
 
@@ -279,6 +288,17 @@ public class SmartTabLayout extends HorizontalScrollView {
   }
 
   /**
+   *  **ViewPager2**
+   *
+   * Almost same {@link this#setOnPageChangeListener}
+   *
+   * @see this#setOnPageChangeListener(ViewPager.OnPageChangeListener)
+   */
+  public void setOnPageChangeListenerV2(ViewPager2.OnPageChangeCallback callback) {
+    vpV2PageChangeCallback = callback;
+  }
+
+  /**
    * Set {@link OnScrollChangeListener} for obtaining values of scrolling.
    *
    * @param listener the {@link OnScrollChangeListener} to set
@@ -303,7 +323,7 @@ public class SmartTabLayout extends HorizontalScrollView {
    * @param textViewId id of the {@link android.widget.TextView} in the inflated view
    */
   public void setCustomTabView(int layoutResId, int textViewId) {
-    tabProvider = new SimpleTabProvider(getContext(), layoutResId, textViewId);
+    tabProvider = new SimpleTabProvider(getContext(), layoutResId, textViewId, vpV2NameGenerator);
   }
 
   /**
@@ -325,6 +345,22 @@ public class SmartTabLayout extends HorizontalScrollView {
     this.viewPager = viewPager;
     if (viewPager != null && viewPager.getAdapter() != null) {
       viewPager.addOnPageChangeListener(new InternalViewPagerListener());
+      populateTabStrip();
+    }
+  }
+  /**
+   * **ViewPager2**
+   *
+   * Sets the associated view pager. Note that the assumption here is that the pager content
+   * (number of tabs and tab titles) does not change after this call has been made.
+   */
+  public void setViewPagerV2(ViewPager2 viewPager2, TabNameGenerator tabNameGenerator) {
+    tabStrip.removeAllViews();
+
+    this.vpV2 = viewPager2;
+    this.vpV2NameGenerator = tabNameGenerator;
+    if (vpV2 != null && vpV2.getAdapter() != null) {
+      vpV2.registerOnPageChangeCallback(new InternalViewPager2Listener());
       populateTabStrip();
     }
   }
@@ -382,34 +418,67 @@ public class SmartTabLayout extends HorizontalScrollView {
   }
 
   private void populateTabStrip() {
-    final PagerAdapter adapter = viewPager.getAdapter();
+    if (viewPager != null) {
+      final PagerAdapter adapter = viewPager.getAdapter();
+      for (int i = 0; i < adapter.getCount(); i++) {
 
-    for (int i = 0; i < adapter.getCount(); i++) {
+        final View tabView = (tabProvider == null)
+                ? createDefaultTabView(adapter.getPageTitle(i))
+                : tabProvider.createTabView(tabStrip, i, adapter);
 
-      final View tabView = (tabProvider == null)
-          ? createDefaultTabView(adapter.getPageTitle(i))
-          : tabProvider.createTabView(tabStrip, i, adapter);
+        if (tabView == null) {
+          throw new IllegalStateException("tabView is null.");
+        }
 
-      if (tabView == null) {
-        throw new IllegalStateException("tabView is null.");
+        if (distributeEvenly) {
+          LinearLayout.LayoutParams lp = (LinearLayout.LayoutParams) tabView.getLayoutParams();
+          lp.width = 0;
+          lp.weight = 1;
+        }
+
+        if (internalTabClickListener != null) {
+          tabView.setOnClickListener(internalTabClickListener);
+        }
+
+        tabStrip.addView(tabView);
+
+        if (i == viewPager.getCurrentItem()) {
+          tabView.setSelected(true);
+        }
+
       }
-
-      if (distributeEvenly) {
-        LinearLayout.LayoutParams lp = (LinearLayout.LayoutParams) tabView.getLayoutParams();
-        lp.width = 0;
-        lp.weight = 1;
+    } else if (vpV2 != null) {
+      final RecyclerView.Adapter<?> adapter = vpV2.getAdapter();
+      if (adapter == null) {
+        return;
       }
+      for (int i = 0; i < adapter.getItemCount(); i++) {
 
-      if (internalTabClickListener != null) {
-        tabView.setOnClickListener(internalTabClickListener);
+        final View tabView = (tabProvider == null)
+                ? createDefaultTabView(vpV2NameGenerator.onTabName(i))
+                : tabProvider.createTabView(tabStrip, i, adapter);
+
+        if (tabView == null) {
+          throw new IllegalStateException("tabView is null.");
+        }
+
+        if (distributeEvenly) {
+          LinearLayout.LayoutParams lp = (LinearLayout.LayoutParams) tabView.getLayoutParams();
+          lp.width = 0;
+          lp.weight = 1;
+        }
+
+        if (internalTabClickListener != null) {
+          tabView.setOnClickListener(internalTabClickListener);
+        }
+
+        tabStrip.addView(tabView);
+
+        if (i == vpV2.getCurrentItem()) {
+          tabView.setSelected(true);
+        }
+
       }
-
-      tabStrip.addView(tabView);
-
-      if (i == viewPager.getCurrentItem()) {
-        tabView.setSelected(true);
-      }
-
     }
   }
 
@@ -547,6 +616,12 @@ public class SmartTabLayout extends HorizontalScrollView {
      * @return Return the View of {@code position} for the Tabs
      */
     View createTabView(ViewGroup container, int position, PagerAdapter adapter);
+    /**
+     * **ViewPager2**
+     *
+     * @return Return the View of {@code position} for the Tabs
+     */
+    View createTabView(ViewGroup container, int position, RecyclerView.Adapter<?> adapter);
 
   }
 
@@ -555,11 +630,13 @@ public class SmartTabLayout extends HorizontalScrollView {
     private final LayoutInflater inflater;
     private final int tabViewLayoutId;
     private final int tabViewTextViewId;
+    private final TabNameGenerator tabNameGenerator;
 
-    private SimpleTabProvider(Context context, int layoutResId, int textViewId) {
+    private SimpleTabProvider(Context context, int layoutResId, int textViewId, TabNameGenerator gen) {
       inflater = LayoutInflater.from(context);
       tabViewLayoutId = layoutResId;
       tabViewTextViewId = textViewId;
+      tabNameGenerator = gen;
     }
 
     @Override
@@ -586,6 +663,81 @@ public class SmartTabLayout extends HorizontalScrollView {
       return tabView;
     }
 
+    @Override
+    public View createTabView(ViewGroup container, int position, RecyclerView.Adapter<?> adapter) {
+      View tabView = null;
+      TextView tabTitleView = null;
+
+      if (tabViewLayoutId != NO_ID) {
+        tabView = inflater.inflate(tabViewLayoutId, container, false);
+      }
+
+      if (tabViewTextViewId != NO_ID && tabView != null) {
+        tabTitleView = (TextView) tabView.findViewById(tabViewTextViewId);
+      }
+
+      if (tabTitleView == null && TextView.class.isInstance(tabView)) {
+        tabTitleView = (TextView) tabView;
+      }
+
+      if (tabTitleView != null && tabNameGenerator != null) {
+        tabTitleView.setText(tabNameGenerator.onTabName(position));
+      }
+
+      return tabView;
+    }
+  }
+
+  private class InternalViewPager2Listener extends ViewPager2.OnPageChangeCallback {
+    private int scrollState;
+
+    @Override
+    public void onPageScrolled(int position, float positionOffset, int positionOffsetPixels) {
+      int tabStripChildCount = tabStrip.getChildCount();
+      if ((tabStripChildCount == 0) || (position < 0) || (position >= tabStripChildCount)) {
+        return;
+      }
+
+      tabStrip.onViewPagerPageChanged(position, positionOffset);
+
+      scrollToTab(position, positionOffset);
+
+      if (vpV2PageChangeCallback != null) {
+        vpV2PageChangeCallback.onPageScrolled(position, positionOffset, positionOffsetPixels);
+      }
+    }
+
+    @Override
+    public void onPageScrollStateChanged(int state) {
+      scrollState = state;
+
+      if (vpV2PageChangeCallback != null) {
+        vpV2PageChangeCallback.onPageScrollStateChanged(state);
+      }
+    }
+
+    @Override
+    public void onPageSelected(int position) {
+      if (scrollState == ViewPager2.SCROLL_STATE_IDLE) {
+        tabStrip.onViewPagerPageChanged(position, 0f);
+        scrollToTab(position, 0);
+      }
+
+      for (int i = 0, size = tabStrip.getChildCount(); i < size; i++) {
+        tabStrip.getChildAt(i).setSelected(position == i);
+      }
+
+      if (vpV2PageChangeCallback != null) {
+        vpV2PageChangeCallback.onPageSelected(position);
+      }
+    }
+  }
+
+  /**
+   * Like TabLayoutMeditator, we should get information about title
+   */
+  public interface TabNameGenerator {
+    String onTabName(int position);
   }
 
   private class InternalViewPagerListener implements ViewPager.OnPageChangeListener {
@@ -643,7 +795,11 @@ public class SmartTabLayout extends HorizontalScrollView {
           if (onTabClickListener != null) {
             onTabClickListener.onTabClicked(i);
           }
-          viewPager.setCurrentItem(i);
+          if (viewPager != null) {
+            viewPager.setCurrentItem(i);
+          } else if (vpV2 != null) {
+            vpV2.setCurrentItem(i, true);
+          }
           return;
         }
       }

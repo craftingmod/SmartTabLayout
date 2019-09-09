@@ -1,6 +1,9 @@
 apply plugin: 'com.android.library'
 apply plugin: 'com.github.ben-manes.versions'
+apply plugin: 'com.github.dcendents.android-maven'
 apply plugin: 'com.github.hierynomus.license'
+
+group='com.github.craftingmod'
 
 android {
   compileSdkVersion COMPILE_SDK_VERSION as int
